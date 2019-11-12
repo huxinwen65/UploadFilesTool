@@ -7,7 +7,7 @@
 //
 
 #import "UploadFilesTool.h"
-
+#import <pthread.h>
 
 @interface UploadFilesTool ()
 /**
@@ -43,32 +43,33 @@
  */
 @property (nonatomic, assign)  BOOL needRestart;
 /**
- 上传状态更新锁
- */
-@property (nonatomic, strong) NSLock *lock;
-/**
 上传失败后，默认重新上传3次
  */
 @property (nonatomic, assign) int reUploadCount ;
 @end
 @implementation UploadFilesTool
+{
+    pthread_mutex_t _lock;
+}
 -(instancetype)init{
     if (self = [super init]) {
         self.semo = dispatch_semaphore_create(self.maxQueueCount);
         self.queue = dispatch_queue_create("HXWUPLOADQUEUE", DISPATCH_QUEUE_CONCURRENT);
         self.group = dispatch_group_create();
         self.needRestart = NO;
-        self.lock = [NSLock new];
+        pthread_mutex_init(&_lock, NULL);
         self.reUploadCount = 3;
     }
     return self;
 }
+- (void)setCompletionHandler:(CompletionHandler)handler{
+    self.handler = handler;
+}
 ///第一次提交待上传的本地文件路径集合
-- (void)startLocalFilePaths:(NSArray<NSString*>*)filePaths completion:(CompletionHandler)handler{
-    if (handler) {
-        self.handler = handler;
-    }
+- (void)startLocalFilePaths:(NSArray<NSString*>*)filePaths{
+  
     for (NSString* filePath in filePaths) {
+        pthread_mutex_lock(&_lock);
         UploadFileModel* model = [self.uploadDic objectForKey:filePath];
         if (!model) {
             model = [UploadFileModel new];
@@ -81,13 +82,13 @@
         if ([model.remoteUrl isEqualToString:@""] && model.state == UploadStateCancel) {
             [self updateMode:model state:UploadStateWaiting];
         }
-        
+        pthread_mutex_unlock(&_lock);
     }
     [self startUpload];
 }
 ///中途提交待上传的本地文件路径集合
 - (void)addLocalFilePaths:(NSArray<NSString*>*)filePaths{
-    [self startLocalFilePaths:filePaths completion:nil];
+    [self startLocalFilePaths:filePaths];
 }
 ///取消上传
 - (void)cancelUploadLocalFilePaths:(NSArray<NSString*>*)filePaths{
@@ -105,13 +106,14 @@
 }
 ///开始上传
 - (void)startUpload{
-    [self.lock lock];
+    pthread_mutex_lock(&_lock);
     if (self.needRestart) {
         self.needRestart = NO;
     }
-    [self.lock unlock];
+    NSArray* uploads = self.uploadDic.allValues;
+    pthread_mutex_unlock(&_lock);
     __weak typeof(self) weakSelf = self;
-    [self.uploadDic.allValues enumerateObjectsUsingBlock:^(UploadFileModel*  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+    [uploads enumerateObjectsUsingBlock:^(UploadFileModel*  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
         if (obj.state == UploadStateWaiting ||obj.state == UploadStateFailed) {
             obj.state = UploadStateUploading;
             ///记得enter跟leave一一对应
@@ -122,7 +124,6 @@
                 obj.task = [weakSelf.delegate uploadFile:obj.originFilePath suceed:^(NSString *remoteUrl) {
                     [weakSelf updateMode:obj state:UploadStateSucessed];
                     obj.remoteUrl = remoteUrl;
-                    obj.task = nil;///任务置空
                     ///信号量加1
                     dispatch_semaphore_signal(weakSelf.semo);
                     ///记得enter跟leave一一对应
@@ -132,7 +133,6 @@
                         ///不是主动取消，设置为failed
                         [weakSelf updateMode:obj state:UploadStateFailed];
                     }
-                    obj.task = nil;///任务置空
                     ///信号量加1
                     dispatch_semaphore_signal(weakSelf.semo);
                     ///记得enter跟leave一一对应
@@ -147,8 +147,10 @@
     ///全部上传完成通知结果
     dispatch_group_notify(self.group, dispatch_get_main_queue(), ^{
         ///上传失败，需要重传，并且次数减1
+        pthread_mutex_lock(&self->_lock);
         if (weakSelf.needRestart && weakSelf.reUploadCount>0) {
             weakSelf.reUploadCount--;
+            pthread_mutex_unlock(&self->_lock);
             [weakSelf startUpload];
         }else{
             if (weakSelf.handler) {
@@ -159,12 +161,12 @@
     });
 }
 - (void)updateMode:(UploadFileModel*)mode state:(UploadState)state{
-    [self.lock lock];
+    pthread_mutex_lock(&_lock);
     mode.state = state;
     if (state == UploadStateFailed) {
         self.needRestart = YES;
     }
-    [self.lock unlock];
+    pthread_mutex_unlock(&_lock);
 }
 
 -(NSMutableDictionary *)uploadDic{

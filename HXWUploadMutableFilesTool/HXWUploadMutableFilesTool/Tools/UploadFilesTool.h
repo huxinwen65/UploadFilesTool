@@ -15,9 +15,9 @@ typedef void(^CompletionHandler)(NSArray<UploadFileModel*>* modes);
 @interface UploadFilesTool : NSObject
 ///设置实际上传网络接口代理
 - (void)setDelegate:(id<UploadFileProtocol>)delegate;
-///第一次提交待上传文件路径集合
-- (void)startLocalFilePaths:(NSArray<NSString*>*)filePaths completion:(CompletionHandler)handler;
-///中途提交待上传文件路径集合
+///上传任务完成后回调
+- (void)setCompletionHandler:(CompletionHandler)handler;
+///提交待上传文件路径集合
 - (void)addLocalFilePaths:(NSArray<NSString*>*)filePaths;
 ///取消上传文件路径集合
 - (void)cancelUploadLocalFilePaths:(NSArray<NSString*>*)filePaths;
