@@ -21,27 +21,20 @@ typedef void(^HXWUploadProgress)(double progress);
 2、UploadFilesTool.h：
 
 ///设置实际上传网络接口代理
-
 - (void)setDelegate:(id<UploadFileProtocol>)delegate;
   
-///第一次提交待上传文件路径集合
+///上传任务完成后回调
+- (void)setCompletionHandler:(CompletionHandler)handler;
 
-- (void)startLocalFilePaths:(NSArray<NSString*>*)filePaths completion:(CompletionHandler)handler;
-
-///中途提交待上传文件路径集合
-
+///提交待上传文件路径集合
 - (void)addLocalFilePaths:(NSArray<NSString*>*)filePaths;
 
 ///取消上传文件路径集合
-
 - (void)cancelUploadLocalFilePaths:(NSArray<NSString*>*)filePaths;
 
 ///设置最大并发数
-
 - (void)setMaxQueueCount:(NSUInteger)maxQueueCount;
-
-  注意：第一次添加本地路径的时候必须调用- (void)startLocalFilePaths:(NSArray<NSString*>*)filePaths completion:(CompletionHandler)handler;这个方法，除非你不关注上传结果。
-
+  
 3、上传完成后回调为UploadFileModel的数组，根据状态state和本地路径拿到相应的远端url：
 
   /**
